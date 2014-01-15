@@ -8,6 +8,8 @@ use FOS\ElasticaBundle\Doctrine\ORM\Listener;
 use FOS\ElasticaBundle\Doctrine\ORM\ElasticaToModelTransformer;
 use FOS\ElasticaBundle\Doctrine\RepositoryManager;
 use FOS\ElasticaBundle\Finder\TransformedFinder;
+use FOS\ElasticaBundle\Resetter;
+use FOS\ElasticaBundle\IndexManager;
 use FOS\ElasticaBundle\Subscriber\PaginateElasticaQuerySubscriber;
 
 class LaravelElasticSearchServiceProvider extends ServiceProvider {
