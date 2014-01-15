@@ -1,0 +1,23 @@
+{
+    "name": "affinity/laravel-elastic-search",
+    "description": "",
+    "authors": [
+        {
+            "name": "Tom Nightingale",
+            "email": "tom@affinitybridge.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.3.0",
+        "illuminate/support": "4.0.*"
+    },
+    "autoload": {
+        "classmap": [
+            "src/migrations"
+        ],
+        "psr-0": {
+            "Affinity\\LaravelElasticSearch\\": "src/"
+        }
+    },
+    "minimum-stability": "dev"
+}
