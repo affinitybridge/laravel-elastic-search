@@ -7,14 +7,20 @@
             "email": "tom@affinitybridge.com"
         }
     ],
+    "repositories": [
+      {
+        "type": "git",
+        "url": "https://github.com/affinitybridge/FOSElasticaBundle.git"
+      }
+    ],
     "require": {
         "php": ">=5.3.0",
-        "illuminate/support": "4.0.*"
+        "illuminate/support": "4.0.*",
+        "atrauzzi/laravel-doctrine": "dev-master",
+        "friendsofsymfony/elastica-bundle": "dev-master",
+        "jms/serializer": "~0.14.0"
     },
     "autoload": {
-        "classmap": [
-            "src/migrations"
-        ],
         "psr-0": {
             "Affinity\\LaravelElasticSearch\\": "src/"
         }
