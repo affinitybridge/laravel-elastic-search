@@ -120,6 +120,8 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     $this->package('affinity/laravel-elastic-search');
     $app = $this->app;
 
+    $this->loadCommands();
+
     $app['serializer'] = SerializerBuilder::create()->build();
 
     // NOTE: Poor-man's equivalent to Symfony's "tagged services" (store a
@@ -165,6 +167,14 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     $app['laravel-elastic-search.index'] = $app[sprintf('laravel-elastic-search.index.%s', $default_index)];
 
     $this->createDefaultManagerAlias($default_manager);
+  }
+
+  protected function loadCommands() {
+    $this->commands(array(
+      'Affinity\LaravelElasticSearch\Commands\PopulateCommand',
+      'Affinity\LaravelElasticSearch\Commands\ResetCommand',
+      'Affinity\LaravelElasticSearch\Commands\SearchCommand',
+    ));
   }
 
   protected function loadServices() {
