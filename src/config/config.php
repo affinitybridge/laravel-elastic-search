@@ -1,45 +1,27 @@
 <?php
 
 return [
-  'default_manager' => 'orm',
-  'default_client' => NULL,
-  'default_index' => NULL,
   'clients' => [
     'default' => [ 'host' => 'localhost', 'port' => '9200' ],
   ],
-  'serializer' => NULL,
-  // 'serializer' => [
-  //   'callback_class' => 'FOS\ElasticaBundle\Serializer\Callback',
-  //   'serializer' => 'serializer',
-  // ],
+  // 'serializer' => NULL,
+  'serializer' => [
+    'callback_class' => 'FOS\ElasticaBundle\Serializer\Callback',
+    'serializer' => 'serializer',
+  ],
   'indexes' => [
-    'matching' => [
-      'settings' => [
-        'index' => [
-          'analysis' => [
-            'analyzer' => [
-              'analyzer_startswith' => [
-                'type' => 'custom',
-                'tokenizer' => 'keyword',
-                'filter' => ['lowercase'],
-                // 'type' => 'snowball',
-                // 'language' => 'English',
-              ],
-            ],
-          ],
-        ],
-      ],
+    'EXAMPLE_INDEX' => [
       'client' => 'default',
       'finder' => TRUE,
       'types' => [
-        'ntee' => [
+        'EXAMPLE_TYPE' => [
           'mappings' => [
-            'shortcode' => [ 'type' => 'string', 'analyzer' => 'analyzer_startswith' ],
+            'title' => [ 'type' => 'string' ],
           ],
           'persistence' => [
-            'driver' => 'orm', # orm, mongodb, propel are available
-            'model' => 'PCGCore\Models\Doctrine\Sector',
-            'identifier' => 'shortcode',
+            'driver' => 'orm', // orm, mongodb, propel are available
+            'model' => 'MODELS\EXAMPLEMODEL',
+            'identifier' => 'id',
             'provider' => [
               'query_builder_method' => 'createQueryBuilder',
               'batch_size' => 100,
@@ -60,6 +42,18 @@ return [
           ],
         ],
       ],
+      // 'settings' => [
+      //   'index' => [
+      //     'analysis' => [
+      //       'analyzer' => [
+      //         'my_analyzer' => [
+      //           'type' => 'snowball',
+      //           'language' => 'English',
+      //         ],
+      //       ],
+      //     ],
+      //   ],
+      // ],
     ],
   ],
   'parameters' => [
@@ -73,4 +67,7 @@ return [
     'ProviderRegistryClass' => 'Affinity\LaravelElasticSearch\Provider\LaravelProviderRegistry',
     'PropertyAccessorClass' => 'Symfony\Component\PropertyAccess\PropertyAccessor',
   ],
+  'default_manager' => 'orm',
+  'default_client' => NULL,
+  'default_index' => NULL,
 ];
