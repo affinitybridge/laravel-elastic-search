@@ -9,7 +9,7 @@ return [
   ],
   'serializer' => NULL,
   // 'serializer' => [
-  //   'callback_class' => 'Affinity\LaravelElasticSearch\Serializer\Callback',
+  //   'callback_class' => 'FOS\ElasticaBundle\Serializer\Callback',
   //   'serializer' => 'serializer',
   // ],
   'indexes' => [
@@ -63,13 +63,13 @@ return [
     ],
   ],
   'parameters' => [
-    'ClientClass' => 'Affinity\LaravelElasticSearch\Client',
+    'ClientClass' => 'FOS\ElasticaBundle\Client',
     'IndexClass' => 'Elastica\Index',
     'TypeClass' => 'Elastica\Type',
-    'LoggerClass' => 'Affinity\LaravelElasticSearch\Logger\ElasticaLogger',
-    'DataCollectorClass' => 'Affinity\LaravelElasticSearch\DataCollector\ElasticaDataCollector',
-    'ManagerClass' => 'Affinity\LaravelElasticSearch\Manager\RepositoryManager',
-    'ElasticaToModelTransformerCollectionClass' => 'Affinity\LaravelElasticSearch\Transformer\ElasticaToModelTransformerCollection',
+    'LoggerClass' => 'FOS\ElasticaBundle\Logger\ElasticaLogger',
+    'DataCollectorClass' => 'FOS\ElasticaBundle\DataCollector\ElasticaDataCollector',
+    'ManagerClass' => 'FOS\ElasticaBundle\Manager\RepositoryManager',
+    'ElasticaToModelTransformerCollectionClass' => 'FOS\ElasticaBundle\Transformer\ElasticaToModelTransformerCollection',
     'ProviderRegistryClass' => 'Affinity\LaravelElasticSearch\Provider\LaravelProviderRegistry',
     'PropertyAccessorClass' => 'Symfony\Component\PropertyAccess\PropertyAccessor',
   ],

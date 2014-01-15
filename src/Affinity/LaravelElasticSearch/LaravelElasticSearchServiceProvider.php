@@ -3,6 +3,13 @@
 use Illuminate\Support\ServiceProvider;
 use JMS\Serializer\SerializerBuilder;
 
+use FOS\ElasticaBundle\Doctrine\ORM\Provider;
+use FOS\ElasticaBundle\Doctrine\ORM\Listener;
+use FOS\ElasticaBundle\Doctrine\ORM\ElasticaToModelTransformer;
+use FOS\ElasticaBundle\Doctrine\RepositoryManager;
+use FOS\ElasticaBundle\Finder\TransformedFinder;
+use FOS\ElasticaBundle\Subscriber\PaginateElasticaQuerySubscriber;
+
 class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
   private $indexConfigs     = array();
@@ -97,7 +104,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
   private function isProviderImplementation($class) {
     if (!isset($this->implementations[$class])) {
       $refl = new \ReflectionClass($class);
-      $this->implementations[$class] = $refl->implementsInterface('Affinity\LaravelElasticSearch\Provider\ProviderInterface');
+      $this->implementations[$class] = $refl->implementsInterface('FOS\ElasticaBundle\Provider\ProviderInterface');
     }
     return $this->implementations[$class];
   }
@@ -183,7 +190,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     $this->app->singleton('laravel-elastic-search.paginator.subscriber', function ($app) {
       // TODO: Should be 'tagged' with knp_paginator.subscriber.
-      return new Subscriber\PaginateElasticaQuerySubscriber();
+      return new PaginateElasticaQuerySubscriber();
     });
 
     $this->app->singleton('laravel-elastic-search.property_accessor', function ($app) {
@@ -201,22 +208,22 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     $app['laravel-elastic-search.provider.prototype.orm'] = function ($app, $params) {
       list($persister, $model, $options) = $params;
-      return new Doctrine\ORM\Provider($persister, $model, $options, $app['doctrine.registry']);
+      return new Provider($persister, $model, $options, $app['doctrine.registry']);
     };
 
     $app['laravel-elastic-search.listener.prototype.orm'] = function ($persister, $model, array $events, $id, $check_method) {
-      return Doctrine\ORM\Listener($persister, $model, $events, $id, $check_method);
+      return new Listener($persister, $model, $events, $id, $check_method);
     };
 
     $app['laravel-elastic-search.elastica_to_model_transformer.prototype.orm'] = function ($app, $params) {
       list($unknown, $model, $options) = $params;
-      $trans = new Doctrine\ORM\ElasticaToModelTransformer($app['doctrine.registry'], $model, $options);
+      $trans = new ElasticaToModelTransformer($app['doctrine.registry'], $model, $options);
       $trans->setPropertyAccessor($app['laravel-elastic-search.property_accessor']);
       return $trans;
     };
 
     $app['laravel-elastic-search.manager.orm'] = function () use ($app) {
-      return new Doctrine\RepositoryManager($app['doctrine.registry'], $app['doctrine.annotation_reader']);
+      return new RepositoryManager($app['doctrine.registry'], $app['doctrine.annotation_reader']);
     };
   }
 
@@ -335,7 +342,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     $finderId = sprintf('laravel-elastic-search.finder.%s', $name);
     $this->app->singleton($finderId, function ($app) use ($indexId, $transformerId) {
-      return new Finder\TransformedFinder($app[$indexId], $app[$transformerId]);
+      return new TransformedFinder($app[$indexId], $app[$transformerId]);
     });
 
     return $finderId;
@@ -518,9 +525,9 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     }
 
     if ($this->serializerConfig) {
-      $baseClass = 'Affinity\LaravelElasticSearch\Transformer\ModelToElasticaIdentifierTransformer';
+      $baseClass = 'FOS\ElasticaBundle\Transformer\ModelToElasticaIdentifierTransformer';
     } else {
-      $baseClass = 'Affinity\LaravelElasticSearch\Transformer\ModelToElasticaAutoTransformer';
+      $baseClass = 'FOS\ElasticaBundle\Transformer\ModelToElasticaAutoTransformer';
     }
 
     $serviceId = sprintf('laravel-elastic-search.model_to_elastica_transformer.%s.%s', $indexName, $typeName);
@@ -544,11 +551,11 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     );
 
     if ($this->serializerConfig) {
-      $baseClass = 'Affinity\LaravelElasticSearch\Persister\ObjectSerializerPersister';
+      $baseClass = 'FOS\ElasticaBundle\Persister\ObjectSerializerPersister';
       $callbackId = sprintf('%s.%s.serializer.callback', $this->indexConfigs[$indexName]['indexId'], $typeName);
       $arguments[] = array($this->app[$callbackId], 'serialize');
     } else {
-      $baseClass = 'Affinity\LaravelElasticSearch\Persister\ObjectPersister';
+      $baseClass = 'FOS\ElasticaBundle\Persister\ObjectPersister';
       $arguments[] = $this->typeFields[sprintf('%s/%s', $indexName, $typeName)];
     }
 
@@ -650,7 +657,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       $finderId = sprintf('laravel-elastic-search.finder.%s.%s', $indexName, $typeName);
 
       $this->app->singleton($finderId, function ($app) use ($typeId, $elasticaToModelId) {
-        return new Finder\TransformedFinder($app[$typeId], $app[$elasticaToModelId]);
+        return new TransformedFinder($app[$typeId], $app[$elasticaToModelId]);
       });
     }
 
