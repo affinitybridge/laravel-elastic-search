@@ -2,6 +2,7 @@
 
 use Illuminate\Support\ServiceProvider;
 use JMS\Serializer\SerializerBuilder;
+use Doctrine\Common\Annotations\AnnotationRegistry;
 
 use FOS\ElasticaBundle\Doctrine\ORM\Provider;
 use FOS\ElasticaBundle\Doctrine\ORM\Listener;
@@ -19,6 +20,9 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
   private $loadedDrivers    = array();
   private $serializerConfig = array();
   private $implementations  = array();
+  private $drivers = array(
+    'orm' => 'loadORMProvider',
+  );
 
   /**
    * Indicates if loading of the provider is deferred.
@@ -35,6 +39,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
   public function boot() {
     $this->transformerPass();
     $this->providersPass();
+    $this->doctrineSubscribersPass();
   }
 
   protected function transformerPass() {
@@ -98,6 +103,15 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
   }
 
   /**
+   * TODO: Move this out of here.
+   */
+  protected function doctrineSubscribersPass() {
+    foreach ($this->app['doctrine.event_subscribers'] as $listenerId) {
+      $this->app['doctrine']->getEventManager()->addEventSubscriber($this->app[$listenerId]);
+    }
+  }
+
+  /**
    * Returns whether the class implements ProviderInterface.
    *
    * @param string $class
@@ -122,15 +136,19 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     $this->loadCommands();
 
+    AnnotationRegistry::registerAutoloadNamespace('FOS\ElasticaBundle\Configuration', __DIR__ . '/../../../vendor/friendsofsymfony/elastica-bundle');
+
+    // TODO: Move this out of here.
+    AnnotationRegistry::registerAutoloadNamespace('JMS\Serializer\Annotation', __DIR__ . '/../../../vendor/jms/serializer/src');
     $app['serializer'] = SerializerBuilder::create()->build();
 
     // NOTE: Poor-man's equivalent to Symfony's "tagged services" (store a
     //       list of service ids in an array on the container for lookup later).
     $app['laravel-elastic-search.elastica_to_model_transformers'] = array();
     $app['laravel-elastic-search.providers'] = array();
+    $app['doctrine.event_subscribers'] = array();
 
     $this->loadServices();
-    $this->loadProviders();
 
     $indexes = $app['config']->get('laravel-elastic-search::indexes', array());
     $clients = $app['config']->get('laravel-elastic-search::clients', array());
@@ -211,10 +229,6 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     });
   }
 
-  protected function loadProviders() {
-    $this->loadORMProvider();
-  }
-
   protected function loadORMProvider() {
     $app = $this->app;
 
@@ -223,8 +237,9 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       return new Provider($persister, $model, $options, $app['doctrine.registry']);
     };
 
-    $app['laravel-elastic-search.listener.prototype.orm'] = function ($persister, $model, array $events, $id, $check_method) {
-      return new Listener($persister, $model, $events, $id, $check_method);
+    $app['laravel-elastic-search.listener.prototype.orm'] = function ($app, $params) {
+      list($persister, $model, $events, $id) = $params;
+      return new Listener($persister, $model, $events, $id);
     };
 
     $app['laravel-elastic-search.elastica_to_model_transformer.prototype.orm'] = function ($app, $params) {
@@ -234,9 +249,11 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       return $trans;
     };
 
-    $app['laravel-elastic-search.manager.orm'] = function () use ($app) {
+    $app->singleton('laravel-elastic-search.manager.orm', function ($app) {
       return new RepositoryManager($app['doctrine.registry'], $app['doctrine.annotation_reader']);
-    };
+    });
+
+    $this->loadedDrivers[] = 'orm';
   }
 
   /**
@@ -613,18 +630,18 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     if (isset($typeConfig['listener']['service'])) {
       return $typeConfig['listener']['service'];
     }
+
+    $events = $this->getDoctrineEvents($typeConfig);
+    $args = array($this->app[$objectPersisterId], $typeConfig['model'], $events, $typeConfig['identifier']);
+
     /* Note: listener services may conflict with "prototype.driver", if the
      * index and type names were "prototype" and a driver, respectively.
      */
-    $abstractListenerId = sprintf('laravel-elastic-search.listener.prototype.%s', $typeConfig['driver']);
+    $abstractId = sprintf('laravel-elastic-search.listener.prototype.%s', $typeConfig['driver']);
     $listenerId = sprintf('laravel-elastic-search.listener.%s.%s', $indexName, $typeName);
-    $events = $this->getDoctrineEvents($typeConfig);
 
-    $this->app->singleton($listenerId, function ($app) use ($abstractListenerId, $events) {
-      $listener = new $abstractListenerId($app[$objectPersisterId], $typeConfig['model'], $typeConfig['identifier'], $events);
-
-      // TODO: This might not work for MongoDB ODM.
-      $app['doctrine']->getEventManager()->addEventSubscriber($listener);
+    $this->app->singleton($listenerId, function ($app) use ($abstractId, $args) {
+      $listener = $app->make($abstractId, $args);
 
       if (isset($typeConfig['listener']['is_indexable_callback'])) {
         $callback = $typeConfig['listener']['is_indexable_callback'];
@@ -640,6 +657,12 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       }
 
       return $listener;
+    });
+
+    // TODO: This might not work for MongoDB ODM.
+    $this->app->extend('doctrine.event_subscribers', function ($tags) use ($listenerId) {
+      $tags[] = $listenerId;
+      return $tags;
     });
 
     return $listenerId;
@@ -674,14 +697,12 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     }
 
     $managerId = sprintf('laravel-elastic-search.manager.%s', $typeConfig['driver']);
-    $this->app->extend($managerId, function ($manager, $app) {
-      $arguments = array( $typeConfig['model'], new Reference($finderId));
-      if (isset($typeConfig['repository'])) {
-        $arguments[] = $typeConfig['repository'];
-      }
-      call_user_func_array(array($manager, 'addEntity'), $arguments);
-      return $manager;
-    });
+
+    $arguments = array($typeConfig['model'], $this->app[$finderId]);
+    if (isset($typeConfig['repository'])) {
+      $arguments[] = $typeConfig['repository'];
+    }
+    call_user_func_array(array($this->app[$managerId], 'addEntity'), $arguments);
 
     return $finderId;
   }
@@ -711,12 +732,15 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
   }
 
   protected function loadDriver($driver) {
-    // if (in_array($driver, $this->loadedDrivers)) {
-    //   return;
-    // }
-    // $loader = new XmlFileLoader($container, new FileLocator(__DIR__.'/../Resources/config'));
-    // $loader->load($driver.'.xml');
-    // $this->loadedDrivers[] = $driver;
+    if (!isset($this->drivers[$driver]) || !method_exists($this, $this->drivers[$driver])) {
+      throw new InvalidArgumentException("Driver: '$driver' doesn't exist.");
+    }
+    if (in_array($driver, $this->loadedDrivers)) {
+      return;
+    }
+    $method = $this->drivers[$driver];
+    $this->$method();
+    $this->loadedDrivers[] = $driver;
   }
 
   protected function createDefaultManagerAlias($defaultManager) {
@@ -732,7 +756,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       $defaultManagerService = $this->loadedDrivers[0];
     }
 
-    $this->app['laravel-elastic-search.manager'] = $app[sprintf('laravel-elastic-search.manager.%s', $defaultManagerService)];
+    $this->app['laravel-elastic-search.manager'] = $this->app[sprintf('laravel-elastic-search.manager.%s', $defaultManagerService)];
   }
 
   /**
