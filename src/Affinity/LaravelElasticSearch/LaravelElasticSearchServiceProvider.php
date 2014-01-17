@@ -37,6 +37,11 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
    * @return void
    */
   public function boot() {
+    // TODO: Move this out of here.
+    $base_path = base_path();
+    AnnotationRegistry::registerAutoloadNamespace('FOS\ElasticaBundle\Configuration', "$base_path/vendor/friendsofsymfony/elastica-bundle");
+    AnnotationRegistry::registerAutoloadNamespace('JMS\Serializer\Annotation', "$base_path/vendor/jms/serializer/src");
+
     $this->transformerPass();
     $this->providersPass();
     $this->doctrineSubscribersPass();
@@ -136,10 +141,6 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     $this->loadCommands();
 
-    AnnotationRegistry::registerAutoloadNamespace('FOS\ElasticaBundle\Configuration', __DIR__ . '/../../../vendor/friendsofsymfony/elastica-bundle');
-
-    // TODO: Move this out of here.
-    AnnotationRegistry::registerAutoloadNamespace('JMS\Serializer\Annotation', __DIR__ . '/../../../vendor/jms/serializer/src');
     $app['serializer'] = SerializerBuilder::create()->build();
 
     // NOTE: Poor-man's equivalent to Symfony's "tagged services" (store a
