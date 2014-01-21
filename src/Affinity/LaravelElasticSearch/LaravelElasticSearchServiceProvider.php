@@ -4,10 +4,6 @@ use Illuminate\Support\ServiceProvider;
 use JMS\Serializer\SerializerBuilder;
 use Doctrine\Common\Annotations\AnnotationRegistry;
 
-use FOS\ElasticaBundle\Doctrine\ORM\Provider;
-use FOS\ElasticaBundle\Doctrine\ORM\Listener;
-use FOS\ElasticaBundle\Doctrine\ORM\ElasticaToModelTransformer;
-use FOS\ElasticaBundle\Doctrine\RepositoryManager;
 use FOS\ElasticaBundle\Finder\TransformedFinder;
 use FOS\ElasticaBundle\Resetter;
 use FOS\ElasticaBundle\IndexManager;
@@ -15,13 +11,17 @@ use FOS\ElasticaBundle\Subscriber\PaginateElasticaQuerySubscriber;
 
 class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
+  private $default_index;
+  private $default_client;
+  private $default_manager;
   private $indexConfigs     = array();
   private $typeFields       = array();
-  private $loadedDrivers    = array();
   private $serializerConfig = array();
   private $implementations  = array();
+  private $indexes          = array();
+  private $indexIdsByName   = array();
   private $drivers = array(
-    'orm' => 'loadORMProvider',
+    'orm' => 'Affinity\LaravelElasticSearch\Drivers\OrmServiceProvider',
   );
 
   /**
@@ -42,9 +42,34 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     AnnotationRegistry::registerAutoloadNamespace('FOS\ElasticaBundle\Configuration', "$base_path/vendor/friendsofsymfony/elastica-bundle");
     AnnotationRegistry::registerAutoloadNamespace('JMS\Serializer\Annotation', "$base_path/vendor/jms/serializer/src");
 
+    $this->loadIndexes();
     $this->transformerPass();
     $this->providersPass();
     $this->doctrineSubscribersPass();
+  }
+
+  protected function loadIndexes() {
+    $app = $this->app;
+
+    foreach ($this->indexes as $name => $index) {
+      $indexId = sprintf('laravel-elastic-search.index.%s', $name);
+      $typePrototypeConfig = isset($index['type_prototype']) ? $index['type_prototype'] : array();
+      $this->loadTypes(isset($index['types']) ? $index['types'] : array(), $name, $indexId, $typePrototypeConfig);
+      $indexId = $this->indexConfigs[$name]['index'];
+      $this->indexConfigs[$name]['index'] = $app[$indexId];
+    }
+
+    $indexRefsByName = array_map(function ($id) use ($app) {
+      return $app[$id];
+    }, $this->indexIdsByName);
+
+    $this->registerIndexManager($indexRefsByName);
+    $this->registerResetter($this->indexConfigs);
+
+    $app['laravel-elastic-search.client'] = $app[sprintf('laravel-elastic-search.client.%s', $this->default_client)];
+    $app['laravel-elastic-search.index'] = $app[sprintf('laravel-elastic-search.index.%s', $this->default_index)];
+
+    $this->createDefaultManagerAlias($this->default_manager);
   }
 
   protected function transformerPass() {
@@ -148,44 +173,38 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     $app['laravel-elastic-search.elastica_to_model_transformers'] = array();
     $app['laravel-elastic-search.providers'] = array();
     $app['doctrine.event_subscribers'] = array();
+    $app['laravel-elastic-search.drivers'] = array_keys($this->drivers);
 
     $this->loadServices();
 
-    $indexes = $app['config']->get('laravel-elastic-search::indexes', array());
+    $this->indexes = $app['config']->get('laravel-elastic-search::indexes', array());
     $clients = $app['config']->get('laravel-elastic-search::clients', array());
     $serializer = $app['config']->get('laravel-elastic-search::serializer', NULL);
-    $default_client = $app['config']->get('laravel-elastic-search::default_client', array());
-    $default_index = $app['config']->get('laravel-elastic-search::default_index', array());
-    $default_manager = $app['config']->get('laravel-elastic-search::default_manager', array());
+    $this->default_client = $app['config']->get('laravel-elastic-search::default_client', array());
+    $this->default_index = $app['config']->get('laravel-elastic-search::default_index', array());
+    $this->default_manager = $app['config']->get('laravel-elastic-search::default_manager', array());
 
-    if (empty($clients) || empty($indexes)) {
-      throw new InvalidArgumentException('You must define at least one client and one index');
+    if (empty($clients) || empty($this->indexes)) {
+      throw new \InvalidArgumentException('You must define at least one client and one index');
     }
 
-    if (empty($default_client)) {
+    if (empty($this->default_client)) {
       $keys = array_keys($clients);
-      $default_client = reset($keys);
+      $this->default_client = reset($keys);
     }
 
-    if (empty($default_index)) {
-      $keys = array_keys($indexes);
-      $default_index = reset($keys);
+    if (empty($this->default_index)) {
+      $keys = array_keys($this->indexes);
+      $this->default_index = reset($keys);
     }
 
     $clientIdsByName = $this->loadClients($clients);
     $this->serializerConfig = $serializer;
-    $indexIdsByName  = $this->loadIndexes($indexes, $clientIdsByName, $default_client);
-    $indexRefsByName = array_map(function ($id) use ($app) {
-      return $app[$id];
-    }, $indexIdsByName);
+    $this->indexIdsByName = $this->registerIndexes($this->indexes, $clientIdsByName, $this->default_client);
 
-    $this->loadIndexManager($indexRefsByName);
-    $this->loadResetter($this->indexConfigs);
-
-    $app['laravel-elastic-search.client'] = $app[sprintf('laravel-elastic-search.client.%s', $default_client)];
-    $app['laravel-elastic-search.index'] = $app[sprintf('laravel-elastic-search.index.%s', $default_index)];
-
-    $this->createDefaultManagerAlias($default_manager);
+    foreach ($this->drivers as $driver => $class) {
+      $this->app->register($class);
+    }
   }
 
   protected function loadCommands() {
@@ -228,33 +247,6 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       $propertyAccessorClass = $app['config']->get('laravel-elastic-search::parameters.PropertyAccessorClass', NULL);
       return new $propertyAccessorClass();
     });
-  }
-
-  protected function loadORMProvider() {
-    $app = $this->app;
-
-    $app['laravel-elastic-search.provider.prototype.orm'] = function ($app, $params) {
-      list($persister, $model, $options) = $params;
-      return new Provider($persister, $model, $options, $app['doctrine.registry']);
-    };
-
-    $app['laravel-elastic-search.listener.prototype.orm'] = function ($app, $params) {
-      list($persister, $model, $events, $id) = $params;
-      return new Listener($persister, $model, $events, $id);
-    };
-
-    $app['laravel-elastic-search.elastica_to_model_transformer.prototype.orm'] = function ($app, $params) {
-      list($unknown, $model, $options) = $params;
-      $trans = new ElasticaToModelTransformer($app['doctrine.registry'], $model, $options);
-      $trans->setPropertyAccessor($app['laravel-elastic-search.property_accessor']);
-      return $trans;
-    };
-
-    $app->singleton('laravel-elastic-search.manager.orm', function ($app) {
-      return new RepositoryManager($app['doctrine.registry'], $app['doctrine.annotation_reader']);
-    });
-
-    $this->loadedDrivers[] = 'orm';
   }
 
   /**
@@ -306,7 +298,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
    * @throws \InvalidArgumentException
    * @return array
    */
-  protected function loadIndexes(array $indexes, array $clientIdsByName, $defaultClientName) {
+  protected function registerIndexes(array $indexes, array $clientIdsByName, $defaultClientName) {
     $indexIds = array();
 
     // $indexClass = $this->app['config']->get('laravel-elastic-search::parameters.IndexClass', NULL);
@@ -331,11 +323,9 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
         return $app[$clientId]->getIndex($indexName);
       });
 
-      $typePrototypeConfig = isset($index['type_prototype']) ? $index['type_prototype'] : array();
       $indexIds[$name] = $indexId;
       $this->indexConfigs[$name] = array(
-        'indexId' => $indexId,
-        'index' => $this->app[$indexId],
+        'index' => $indexId,
         'config' => array(
           'mappings' => array()
         )
@@ -347,7 +337,6 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
       if (!empty($index['settings'])) {
         $this->indexConfigs[$name]['config']['settings'] = $index['settings'];
       }
-      $this->loadTypes(isset($index['types']) ? $index['types'] : array(), $name, $indexId, $typePrototypeConfig);
     }
 
     return $indexIds;
@@ -497,8 +486,6 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
    * @param $typeName
    */
   protected function loadTypePersistenceIntegration(array $typeConfig, $typeId, $indexName, $typeName) {
-    $this->loadDriver($typeConfig['driver']);
-
     $elasticaToModelTransformerId = $this->loadElasticaToModelTransformer($typeConfig, $indexName, $typeName);
     $modelToElasticaTransformerId = $this->loadModelToElasticaTransformer($typeConfig, $indexName, $typeName);
     $objectPersisterId            = $this->loadObjectPersister($typeConfig, $typeId, $indexName, $typeName, $modelToElasticaTransformerId);
@@ -582,7 +569,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     if ($this->serializerConfig) {
       $baseClass = 'FOS\ElasticaBundle\Persister\ObjectSerializerPersister';
-      $callbackId = sprintf('%s.%s.serializer.callback', $this->indexConfigs[$indexName]['indexId'], $typeName);
+      $callbackId = sprintf('%s.%s.serializer.callback', $this->indexConfigs[$indexName]['index'], $typeName);
       $arguments[] = array($this->app[$callbackId], 'serialize');
     } else {
       $baseClass = 'FOS\ElasticaBundle\Persister\ObjectPersister';
@@ -714,7 +701,7 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
    * @param array            $indexRefsByName
    * @param ContainerBuilder $container
    **/
-  protected function loadIndexManager(array $indexRefsByName) {
+  protected function registerIndexManager(array $indexRefsByName) {
     $this->app->singleton('laravel-elastic-search.index_manager', function ($app) use ($indexRefsByName) {
       return new IndexManager($indexRefsByName, $app['laravel-elastic-search.index']);
     });
@@ -726,35 +713,24 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
    * @param array $indexConfigs
    * @param \Symfony\Component\DependencyInjection\ContainerBuilder $container
    */
-  protected function loadResetter(array $indexConfigs) {
+  protected function registerResetter(array $indexConfigs) {
     $this->app->singleton('laravel-elastic-search.resetter', function ($app) use ($indexConfigs) {
       return new Resetter($indexConfigs);
     });
   }
 
-  protected function loadDriver($driver) {
-    if (!isset($this->drivers[$driver]) || !method_exists($this, $this->drivers[$driver])) {
-      throw new InvalidArgumentException("Driver: '$driver' doesn't exist.");
-    }
-    if (in_array($driver, $this->loadedDrivers)) {
-      return;
-    }
-    $method = $this->drivers[$driver];
-    $this->$method();
-    $this->loadedDrivers[] = $driver;
-  }
-
   protected function createDefaultManagerAlias($defaultManager) {
-    if (0 == count($this->loadedDrivers)) {
+    $drivers = $this->app['laravel-elastic-search.drivers'];
+    if (0 == count($drivers)) {
       return;
     }
 
-    if (count($this->loadedDrivers) > 1
-      && in_array($defaultManager, $this->loadedDrivers)
+    if (count($drivers) > 1
+      && in_array($defaultManager, $drivers)
     ) {
       $defaultManagerService = $defaultManager;
     } else {
-      $defaultManagerService = $this->loadedDrivers[0];
+      $defaultManagerService = $drivers[0];
     }
 
     $this->app['laravel-elastic-search.manager'] = $this->app[sprintf('laravel-elastic-search.manager.%s', $defaultManagerService)];
