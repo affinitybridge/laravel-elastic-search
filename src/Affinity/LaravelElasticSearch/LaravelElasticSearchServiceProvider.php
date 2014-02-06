@@ -42,6 +42,10 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
     AnnotationRegistry::registerAutoloadNamespace('FOS\ElasticaBundle\Configuration', "$base_path/vendor/friendsofsymfony/elastica-bundle");
     AnnotationRegistry::registerAutoloadNamespace('JMS\Serializer\Annotation', "$base_path/vendor/jms/serializer/src");
 
+    if ($this->app['config']->get('laravel-elastic-search::disabled', FALSE)) {
+      return;
+    }
+
     $this->loadIndexes();
     $this->transformerPass();
     $this->providersPass();
@@ -163,6 +167,10 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
   public function register() {
     $this->package('affinity/laravel-elastic-search');
     $app = $this->app;
+
+    if ($app['config']->get('laravel-elastic-search::disabled', FALSE)) {
+      return;
+    }
 
     $this->loadCommands();
 
