@@ -9,6 +9,7 @@ return [
     'callback_class' => 'FOS\ElasticaBundle\Serializer\Callback',
     'serializer' => 'serializer',
   ],
+  'prefix' => 'example-1',
   'indexes' => [
     'EXAMPLE_INDEX' => [
       'client' => 'default',

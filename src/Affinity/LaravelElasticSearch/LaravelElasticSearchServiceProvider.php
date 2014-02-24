@@ -185,7 +185,14 @@ class LaravelElasticSearchServiceProvider extends ServiceProvider {
 
     $this->loadServices();
 
-    $this->indexes = $app['config']->get('laravel-elastic-search::indexes', array());
+    // Prefix indexes to allow for multiple instances of site.
+    $prefix = $app['config']->get('laravel-elastic-search::prefix', NULL);
+    $this->indexes = [];
+    foreach ($app['config']->get('laravel-elastic-search::indexes', array()) as $name => $index) {
+      if ($prefix) $name = "{$prefix}-{$name}";
+      $this->indexes[$name] = $index;
+    }
+
     $clients = $app['config']->get('laravel-elastic-search::clients', array());
     $serializer = $app['config']->get('laravel-elastic-search::serializer', NULL);
     $this->default_client = $app['config']->get('laravel-elastic-search::default_client', array());
